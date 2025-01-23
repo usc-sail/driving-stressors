@@ -1,0 +1,23 @@
+root: "/media/data/toyota/processed_data/trina_33_samples_f/"
+device: cuda  # cuda or cpu
+n_splits: 3
+test_size: 0.2
+batch_size: 32
+num_workers: 16
+shuffle: True
+modalities: ["ecg", "eda", "rsp"]
+
+model_config:
+  in_channels: 1
+  base_filters: 32
+  n_block: 2
+  n_classes: 4
+
+lr: 0.001
+step_size: 5
+
+load_from: null
+checkpoint: metadata/model_ts.pth
+early_stopping: True
+patience: 5
+max_epochs: 50
