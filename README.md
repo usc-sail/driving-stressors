@@ -22,7 +22,7 @@ The data for this code is located in ``erie`` server, under ``/media/data/toyota
 
 * ``trina_33/`` contains the full csv files of the Toyota dataset, with annotations embedded.
 * ``trina_33_samples/`` contains pkl dicts with segmented time-series for model input.
-* ``trina_33_samples_f/`` contains pkl dicts with further pre-processed input time-series.
+* ``trina_33_samples_fupd/`` contains pkl dicts with further pre-processed input time-series.
 
 Any (sub)directory that is not mentioned here can be ignored.
 
@@ -31,7 +31,13 @@ Any (sub)directory that is not mentioned here can be ignored.
 The deep learning pipeline is included in the files starting with ``nn_``. Run with:
 
 ```bash
-python script.py
+python nn_script.py
 ```
 
 Most parameters can be tuned through the ``config.yaml`` and ``nn_dataset.py`` files.
+
+Model evaluation and statistics for a specific experimental setup through:
+
+```bash
+python score_evaluation.py
+```

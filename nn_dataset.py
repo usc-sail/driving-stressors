@@ -2,8 +2,6 @@ import os, numpy as np, pickle
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-SRC = "/media/data/toyota/processed_data/trina_33_samples/"
-
 
 class TRINA33(Dataset):
     def __init__(
@@ -32,7 +30,8 @@ class TRINA33(Dataset):
             Standard deviation for normalization.
         """
         self.path = path
-        self.tasks = ["I", "M", "S"] if task is None else [task]
+        # self.tasks = ["I", "M", "S"] if task is None else [task]
+        self.tasks = ["I"]
         self.subjects = (
             [name.split("_") for name in os.listdir(self.path)]
             if not len(subjects)
@@ -61,7 +60,7 @@ class TRINA33(Dataset):
 
                 # self.load_from_path(video_path, subject, label=0)
                 self.load_from_path(free_path, subject, label=0)
-                self.load_from_path(event_path, subject, label=self.task_dict[task])
+                self.load_from_path(event_path, subject, label=1)
                 # self.load_from_path(recov_path, subject, label=0)
 
         # global (mean, std) for normalization
@@ -101,5 +100,6 @@ class TRINA33(Dataset):
 
 
 if __name__ == "__main__":
+    SRC = "/media/data/toyota/processed_data/trina_33_samples_fupd/"
     sample = TRINA33(SRC)[10]
     print(sample[0].shape, sample[1], sample[2])

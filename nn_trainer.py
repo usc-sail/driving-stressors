@@ -4,9 +4,9 @@ from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader
 from sklearn.metrics import (
     average_precision_score,
+    roc_auc_score,
     confusion_matrix,
     f1_score,
-    roc_auc_score,
     accuracy_score,
     balanced_accuracy_score,
 )
@@ -25,6 +25,7 @@ class Trainer:
         patience: int,
         epochs: int,
         class_weights: torch.Tensor,
+        verbose: bool = True,
     ) -> None:
         self.device = device
         self.model = model
@@ -37,6 +38,7 @@ class Trainer:
         self.early_stopping = early_stopping
         self.patience = patience
         self.epochs = epochs
+        self.verbose = verbose
 
     def perform_training(
         self, train_loader: DataLoader, valid_loader: DataLoader
@@ -47,9 +49,10 @@ class Trainer:
             self.train(train_loader, ep)
 
             metric_dict, _, _ = self.validate(valid_loader, ep)
-            for metric in metric_dict:
-                print(f"\tvalid {metric}: {metric_dict[metric]:.7f}")
-            print()
+            if self.verbose:
+                for metric in metric_dict:
+                    print(f"\tvalid {metric}: {metric_dict[metric]:.7f}")
+                print()
 
             look_at = "ROC-AUC" if "ROC-AUC" in metric_dict else "F1 Macro"
             if metric_dict[look_at] > best_metric:
@@ -65,10 +68,10 @@ class Trainer:
 
     def perform_inference(self, data_loader: DataLoader) -> dict[str, float]:
         self.load(self.checkpoint)
-        self.metric_dict, proba_dict, cm = self.validate(data_loader)
+        self.metric_dict, all_proba, cm = self.validate(data_loader)
         for metric in self.metric_dict:
             print(f"\ttest {metric}: {self.metric_dict[metric]:.7f}")
-        return proba_dict, cm
+        return all_proba, cm
 
     def train(self, data_loader: DataLoader, epoch) -> float:
         self.model.train()
@@ -115,19 +118,19 @@ class Trainer:
         all_proba = softmax(all_pred, axis=1)[:, 1]
         all_pred_m = np.argmax(all_pred, axis=1)
 
-        # print confusion matrix
-        cm = confusion_matrix(all_true, all_pred_m)
-        print(cm)
+        # confusion matrix
+        n_labels = self.class_weights.shape[0]
+        cm = confusion_matrix(all_true, all_pred_m, labels=np.arange(n_labels))
 
         score_dict = {
             "CE Loss": np.mean(all_loss),
-            # "ROC-AUC": roc_auc_score(all_true, all_proba),
-            # "PR-AUC": average_precision_score(all_true, all_proba),
+            "ROC-AUC": roc_auc_score(all_true, all_proba),
+            "PR-AUC": average_precision_score(all_true, all_proba),
             "F1 Macro": f1_score(all_true, all_pred_m, average="macro"),
             "Accuracy": accuracy_score(all_true, all_pred_m),
             "B. Accuracy": balanced_accuracy_score(all_true, all_pred_m),
         }
-        return score_dict, score_dict, cm
+        return score_dict, all_proba, cm
 
     def save(self, file_path: str = "./") -> None:
         torch.save(self.model.state_dict(), file_path)

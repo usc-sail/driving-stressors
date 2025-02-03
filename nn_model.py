@@ -40,7 +40,7 @@ class MultimodalNN(nn.Module):
         self.modality_nns = nn.ModuleList(self.modality_nns)
 
         self.rnn = nn.GRU(
-            input_size=32 * n_modalities,
+            input_size=64 * n_modalities,
             hidden_size=256,
             num_layers=2,
             batch_first=True,

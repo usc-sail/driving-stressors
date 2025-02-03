@@ -10,6 +10,7 @@ __pycache__/
 *.pth
 
 # my files
+ckpt/
 data/
 outputs/
 metadata/

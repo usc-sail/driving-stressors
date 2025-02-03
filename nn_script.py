@@ -16,7 +16,17 @@ def find_class_weights(labels: list[int]) -> torch.Tensor:
     return torch.tensor(class_weights / class_weights.sum()).float()
 
 
+def task_exists(sub, tasks):
+    for task in tasks:
+        task_file = f"{sub}_{tasks[0]}.csv"
+        if not os.path.exists(cfg.root + task_file):
+            print(f"Task {task} does not exist for subject {sub}.")
+            return False
+    return True
+
+
 # Load config file
+os.makedirs("ckpt", exist_ok=True)
 with open("config.yaml", "r") as f:
     cfg = munchify(yaml.safe_load(f))
 print("Using config:", cfg)
@@ -25,29 +35,20 @@ if "cuda" in cfg.device:
     os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1"
 
 subs = [f"P{i}" for i in range(1, 34)]
-bad_subs = ["P3", "P25"]
+bad_subs = ["P3", "P9", "P25"]
 subs = [sub for sub in subs if sub not in bad_subs]
 
 loso = LeaveOneOut()
 all_scores = {s: {} for s in subs}
+all_cms = {s: {} for s in subs}
 for i, (train_index, test_index) in enumerate(loso.split(subs)):
     print(f"\nFold {i+1}/{len(subs)}")
     train_subs, test_sub = np.array(subs)[train_index], np.array(subs)[test_index]
     print(f"Test subject: {test_sub}")
 
-    if test_sub[0] in [
-        "P1",
-        "P2",
-        "P4",
-        "P5",
-        "P6",
-        "P7",
-        "P8",
-        "P11",
-        "P12",
-        "P13",
-        "P14",
-    ]:
+    if not task_exists(test_sub[0], cfg.tasks):
+        continue
+    if int(test_sub[0][1:]) < 17:
         continue
 
     ssp = ShuffleSplit(
@@ -62,7 +63,7 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
 
         print("Loading training dataset...")
         train_dataset = TRINA33(
-            cfg.root, task=None, subjects=tr_sub, modalities=cfg.modalities
+            cfg.proc_root, task=None, subjects=tr_sub, modalities=cfg.modalities
         )
         train_loader = DataLoader(
             train_dataset,
@@ -75,7 +76,7 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
 
         print("Loading validation dataset...")
         val_dataset = TRINA33(
-            cfg.root,
+            cfg.proc_root,
             task=None,
             subjects=val_sub,
             modalities=cfg.modalities,
@@ -111,17 +112,18 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
             optimizer=optimizer,
             scheduler=scheduler,
             early_stopping=cfg.early_stopping,
-            checkpoint=cfg.checkpoint,
+            checkpoint=f"ckpt/{test_sub[0]}_seed{j}_task{"".join(cfg.tasks)}.pt",
             patience=cfg.patience,
             epochs=cfg.max_epochs,
             class_weights=find_class_weights(train_dataset.labels),
+            verbose=False,
         )
         print("Now training...\n")
         trainer.perform_training(train_loader, valid_loader)
 
         print("\nNow testing...")
         test_dataset = TRINA33(
-            cfg.root,
+            cfg.proc_root,
             task=None,
             subjects=test_sub,
             modalities=cfg.modalities,
@@ -144,10 +146,14 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
             for k in these_scores[0]
         }
         if isinstance(these_scores[0], dict)
-        else np.array(these_scores).mean().tolist()
+        else np.array(these_scores).mean(axis=0).tolist()
     )
     print(f"Sum confusion matrix:\n{np.array(these_cm).sum(axis=0)}")
+    all_cms[test_sub[0]] = np.array(these_cm).sum(axis=0).tolist()
+
     # Save the scores as we go
     os.makedirs("results", exist_ok=True)
-    with open("results/nn_scores.json", "w") as f:
+    with open("results/nn_scores_I2.json", "w") as f:
         json.dump(all_scores, f, indent=4)
+    with open("results/nn_scores_I2_cm.json", "w") as f:
+        yaml.dump(all_cms, f, indent=4)
