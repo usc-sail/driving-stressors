@@ -30,8 +30,8 @@ class TRINA33(Dataset):
             Standard deviation for normalization.
         """
         self.path = path
-        # self.tasks = ["I", "M", "S"] if task is None else [task]
-        self.tasks = ["I"]
+        self.modalities = modalities
+        self.tasks = ["I", "M", "S"] if task is None else task
         self.subjects = (
             [name.split("_") for name in os.listdir(self.path)]
             if not len(subjects)
@@ -40,10 +40,14 @@ class TRINA33(Dataset):
         self.subjects = list(set(self.subjects))
         self.task_dict = {"I": 1, "S": 2, "M": 3}
 
+        # data for normalization
+        self.mean, self.std = mean, std
+        self.norm_data = {m: [] for m in self.modalities}
+
         # load data and labels
-        self.modalities = modalities
         self.data = {m: [] for m in self.modalities}
         self.labels, self.names = [], []
+
         for subject in tqdm(self.subjects):
             for task in self.tasks:
                 video_path = os.path.join(self.path, f"{subject}_{task}_video.pkl")
@@ -51,26 +55,24 @@ class TRINA33(Dataset):
                 event_path = os.path.join(self.path, f"{subject}_{task}_event.pkl")
                 # recov_path = os.path.join(self.path, f"{subject}_{task}_recov.pkl")
 
-                if subject == "P28" and task == "M":
-                    continue
-                if subject == "P21" and task == "S":
-                    continue
                 if not os.path.exists(video_path):
                     continue
 
-                # self.load_from_path(video_path, subject, label=0)
-                self.load_from_path(free_path, subject, label=0)
+                if self.mean is None:
+                    self.make_normalization_data(video_path)
+
+                self.load_from_path(video_path, subject, label=0)
+                self.load_from_path(free_path, subject, label=1)
                 self.load_from_path(event_path, subject, label=1)
                 # self.load_from_path(recov_path, subject, label=0)
 
-        # global (mean, std) for normalization
         for m in self.modalities:
             self.data[m] = np.vstack(self.data[m])
-        if mean is None or std is None:
-            self.mean = {m: np.mean(self.data[m], axis=0) for m in self.modalities}
-            self.std = {m: np.std(self.data[m], axis=0) for m in self.modalities}
-        else:
-            self.mean, self.std = mean, std
+
+        # global (mean, std) for normalization
+        if self.mean is None:
+            self.mean = {m: np.mean(self.norm_data[m]) for m in self.modalities}
+            self.std = {m: np.std(self.norm_data[m]) for m in self.modalities}
 
         # normalize data
         for m in self.modalities:
@@ -87,8 +89,24 @@ class TRINA33(Dataset):
                 else:
                     this_data[m] = this_data[m][:, ::10]
                 self.data[m].extend(this_data[m])
+
             self.labels.extend([label] * len(this_data[m]))
             self.names.extend([sub] * len(this_data[m]))
+
+    def make_normalization_data(self, path: str) -> None:
+        with open(path, "rb") as f:
+            this_data = pickle.load(f)
+            for m in self.modalities:
+                if this_data[m] is None:
+                    continue
+                else:
+                    this_data[m] = this_data[m][:, ::10]
+
+                # include the middle 50% for normalization
+                middle_idx = len(this_data[m]) // 4
+                self.norm_data[m].extend(
+                    this_data[m][middle_idx : len(this_data[m]) - middle_idx]
+                )
 
     def __len__(self) -> int:
         return len(self.data["ecg"])
@@ -100,6 +118,6 @@ class TRINA33(Dataset):
 
 
 if __name__ == "__main__":
-    SRC = "/media/data/toyota/processed_data/trina_33_samples_fupd/"
+    SRC = "/media/data/toyota/processed_data/trina_33_samples_final/"
     sample = TRINA33(SRC)[10]
     print(sample[0].shape, sample[1], sample[2])

@@ -3,11 +3,9 @@ from tqdm import tqdm
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader
 from sklearn.metrics import (
-    average_precision_score,
     roc_auc_score,
     confusion_matrix,
     f1_score,
-    accuracy_score,
     balanced_accuracy_score,
 )
 from scipy.special import softmax
@@ -43,7 +41,7 @@ class Trainer:
     def perform_training(
         self, train_loader: DataLoader, valid_loader: DataLoader
     ) -> None:
-        best_metric = 0
+        best_metric = 10
         patience_counter = 0
         for ep in range(self.epochs):
             self.train(train_loader, ep)
@@ -54,9 +52,8 @@ class Trainer:
                     print(f"\tvalid {metric}: {metric_dict[metric]:.7f}")
                 print()
 
-            look_at = "ROC-AUC" if "ROC-AUC" in metric_dict else "F1 Macro"
-            if metric_dict[look_at] > best_metric:
-                best_metric = metric_dict[look_at]
+            if metric_dict["CE Loss"] < best_metric:
+                best_metric = metric_dict["CE Loss"]
                 patience_counter = 0
                 self.save(self.checkpoint)
             else:
@@ -64,7 +61,7 @@ class Trainer:
                 if self.early_stopping and patience_counter == self.patience:
                     print("Early stopping now.")
                     break
-            self.scheduler.step()
+            self.scheduler.step(metric_dict["CE Loss"])
 
     def perform_inference(self, data_loader: DataLoader) -> dict[str, float]:
         self.load(self.checkpoint)
@@ -125,9 +122,7 @@ class Trainer:
         score_dict = {
             "CE Loss": np.mean(all_loss),
             "ROC-AUC": roc_auc_score(all_true, all_proba),
-            "PR-AUC": average_precision_score(all_true, all_proba),
             "F1 Macro": f1_score(all_true, all_pred_m, average="macro"),
-            "Accuracy": accuracy_score(all_true, all_pred_m),
             "B. Accuracy": balanced_accuracy_score(all_true, all_pred_m),
         }
         return score_dict, all_proba, cm

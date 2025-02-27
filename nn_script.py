@@ -1,5 +1,5 @@
-import numpy as np, os, pandas as pd
-import yaml, json, torch.nn as nn, torch
+import numpy as np, os, torch
+import yaml, json, torch.nn as nn
 from munch import munchify
 from torch.utils.data import DataLoader
 from torch.optim import AdamW, lr_scheduler
@@ -18,11 +18,11 @@ def find_class_weights(labels: list[int]) -> torch.Tensor:
 
 def task_exists(sub, tasks):
     for task in tasks:
-        task_file = f"{sub}_{tasks[0]}.csv"
-        if not os.path.exists(cfg.root + task_file):
-            print(f"Task {task} does not exist for subject {sub}.")
-            return False
-    return True
+        task_file = f"{sub}_{task}.csv"
+        if os.path.exists(cfg.root + task_file):
+            return True
+    print(f"{sub} does not have any of the tasks {tasks}.")
+    return False
 
 
 # Load config file
@@ -34,21 +34,20 @@ print("Using config:", cfg)
 if "cuda" in cfg.device:
     os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1"
 
-subs = [f"P{i}" for i in range(1, 34)]
-bad_subs = ["P3", "P9", "P25"]
-subs = [sub for sub in subs if sub not in bad_subs]
-
 loso = LeaveOneOut()
+subs = [f"P{i}" for i in range(1, 34) if i != 3]
+
 all_scores = {s: {} for s in subs}
 all_cms = {s: {} for s in subs}
 for i, (train_index, test_index) in enumerate(loso.split(subs)):
-    print(f"\nFold {i+1}/{len(subs)}")
-    train_subs, test_sub = np.array(subs)[train_index], np.array(subs)[test_index]
+    train_subs = np.array(subs)[train_index]
+    test_sub = np.array(subs)[test_index]
     print(f"Test subject: {test_sub}")
 
-    if not task_exists(test_sub[0], cfg.tasks):
+    if int(test_sub[0][1:]) < 22:
         continue
-    if int(test_sub[0][1:]) < 17:
+
+    if not task_exists(test_sub[0], cfg.tasks):
         continue
 
     ssp = ShuffleSplit(
@@ -63,7 +62,7 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
 
         print("Loading training dataset...")
         train_dataset = TRINA33(
-            cfg.proc_root, task=None, subjects=tr_sub, modalities=cfg.modalities
+            cfg.proc_root, task=cfg.tasks, subjects=tr_sub, modalities=cfg.modalities
         )
         train_loader = DataLoader(
             train_dataset,
@@ -77,7 +76,7 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
         print("Loading validation dataset...")
         val_dataset = TRINA33(
             cfg.proc_root,
-            task=None,
+            task=cfg.tasks,
             subjects=val_sub,
             modalities=cfg.modalities,
             mean=tr_mean,
@@ -102,10 +101,10 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
         model = nn.DataParallel(model)
 
         # Define optimizer, scheduler, and loss function
-        optimizer = AdamW(model.parameters(), lr=cfg.lr, eps=1e-8, weight_decay=1e-5)
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=cfg.step_size)
-
-        # Define the trainer
+        optimizer = AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-3)
+        scheduler = lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=cfg.patience - 2, threshold=1e-5
+        )
         trainer = Trainer(
             device=cfg.device,
             model=model,
@@ -116,7 +115,6 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
             patience=cfg.patience,
             epochs=cfg.max_epochs,
             class_weights=find_class_weights(train_dataset.labels),
-            verbose=False,
         )
         print("Now training...\n")
         trainer.perform_training(train_loader, valid_loader)
@@ -124,7 +122,7 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
         print("\nNow testing...")
         test_dataset = TRINA33(
             cfg.proc_root,
-            task=None,
+            task=cfg.tasks,
             subjects=test_sub,
             modalities=cfg.modalities,
             mean=tr_mean,
@@ -153,7 +151,7 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
 
     # Save the scores as we go
     os.makedirs("results", exist_ok=True)
-    with open("results/nn_scores_I2.json", "w") as f:
+    with open("results/nn_scores_final_S_tsnet.json", "w") as f:
         json.dump(all_scores, f, indent=4)
-    with open("results/nn_scores_I2_cm.json", "w") as f:
-        yaml.dump(all_cms, f, indent=4)
+    # with open("results/nn_scores_addit_S_cm.json", "w") as f:
+    #    yaml.dump(all_cms, f, indent=4)

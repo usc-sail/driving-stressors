@@ -3,8 +3,8 @@ import numpy as np, pandas as pd
 import os, neurokit2 as nk
 from tqdm import tqdm
 
-datapath = "/media/data/toyota/processed_data/trina_33"
-samples_path = "/media/data/toyota/processed_data/trina_33_samples_fupd"
+datapath = "/media/data/toyota/processed_data/trina_33_final"
+samples_path = "/media/data/toyota/processed_data/trina_33_samples_final"
 os.makedirs(samples_path, exist_ok=True)
 
 
@@ -43,7 +43,12 @@ def get_driving_baseline(main_driving, air):
     main_driving = main_driving.drop(
         main_driving[main_driving["event"] == "Experiment Start"].index
     )
+    # drop row with event "Collection Start"
+    main_driving = main_driving.drop(
+        main_driving[main_driving["event"] == "Collection Start"].index
+    )
     event_start = main_driving[main_driving["event"].notna()].index[0]
+    print(event_start, len(main_driving.loc[: event_start + air]))
     return main_driving.loc[: event_start + air]
 
 
@@ -55,6 +60,10 @@ def get_event_driving(main_driving, air, recovery=False):
     # drop row with event "Experiment Start"
     main_driving = main_driving.drop(
         main_driving[main_driving["event"] == "Experiment Start"].index
+    )
+    # drop row with event "Collection Start"
+    main_driving = main_driving.drop(
+        main_driving[main_driving["event"] == "Collection Start"].index
     )
 
     main_start = main_driving[main_driving["event"].notna()].index[0]

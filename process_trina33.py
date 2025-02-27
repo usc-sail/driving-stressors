@@ -3,7 +3,7 @@ import pandas as pd, numpy as np
 
 
 RAW_PATH = "/media/data/toyota/raw_data/trina_33/"
-PROC_PATH = "/media/data/toyota/processed_data/trina_33/"
+PROC_PATH = "/media/data/toyota/processed_data/trina_33_final/"
 os.makedirs(PROC_PATH, exist_ok=True)
 
 
@@ -97,7 +97,7 @@ def extract_events(p_name, sample_dt):
 
         # get all event names between experiment start and end
         flag = False
-        for i, row in events.iterrows():
+        for _, row in events.iterrows():
             if flag:
                 if row["Event"] == "Experiment End":
                     flag = False

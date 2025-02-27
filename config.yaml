@@ -1,12 +1,12 @@
-root: "/media/data/toyota/processed_data/trina_33/"
-proc_root: "/media/data/toyota/processed_data/trina_33_samples_fupd/"
+root: "/media/data/toyota/processed_data/trina_33_final/"
+proc_root: "/media/data/toyota/processed_data/trina_33_samples_final/"
 device: cuda  # cuda or cpu
 n_splits: 5
 test_size: 0.2
 batch_size: 64
 num_workers: 16
 shuffle: True
-tasks: ["I"]
+tasks: ["S"]
 modalities: ["ecg", "eda", "rsp"]
 
 model_config:
@@ -15,9 +15,17 @@ model_config:
   n_block: 4
   n_classes: 2
 
-lr: 0.0005
-step_size: 5
+timesnet_config:
+  seq_len: 300
+  e_layers: 2
+  d_model: 32
+  d_ff: 64
+  num_kernels: 8
+  top_k: 2
+  dropout: 0.2
+  num_class: 2
 
+lr: 0.001
 load_from: null
 early_stopping: True
 patience: 5
