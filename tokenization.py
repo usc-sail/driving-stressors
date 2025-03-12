@@ -5,7 +5,7 @@ from tqdm import tqdm
 import warnings
 
 warnings.filterwarnings("ignore")
-datapath = "/media/data/toyota/processed_data/trina_33"
+datapath = "/media/data/toyota/processed_data/trina_33_final"
 samples_path = "/media/data/toyota/processed_data/trina_33_samples_tokens"
 os.makedirs(samples_path, exist_ok=True)
 
@@ -45,6 +45,10 @@ def get_driving_baseline(main_driving, air):
     main_driving = main_driving.drop(
         main_driving[main_driving["event"] == "Experiment Start"].index
     )
+    # drop row with event "Collection Start"
+    main_driving = main_driving.drop(
+        main_driving[main_driving["event"] == "Collection Start"].index
+    )
     event_start = main_driving[main_driving["event"].notna()].index[0]
     return main_driving.loc[: event_start + air]
 
@@ -57,6 +61,10 @@ def get_event_driving(main_driving, air, recovery=False):
     # drop row with event "Experiment Start"
     main_driving = main_driving.drop(
         main_driving[main_driving["event"] == "Experiment Start"].index
+    )
+    # drop row with event "Collection Start"
+    main_driving = main_driving.drop(
+        main_driving[main_driving["event"] == "Collection Start"].index
     )
 
     main_start = main_driving[main_driving["event"].notna()].index[0]
@@ -103,8 +111,11 @@ def get_ecg_features(ecg_rec, sr):
     """
     ecg = nk.ecg_findpeaks(ecg_rec, sampling_rate=sr)
     hr = nk.ecg_rate(ecg, sampling_rate=sr)
-    hrv_t = nk.hrv_time(ecg, sampling_rate=sr)
-    hrv_f = nk.hrv_frequency(ecg, sampling_rate=sr)
+    try:
+        hrv_t = nk.hrv_time(ecg, sampling_rate=sr)
+        hrv_f = nk.hrv_frequency(ecg, sampling_rate=sr)
+    except:
+        return hr.mean(), 2048.0, 2048.0, 2048.0, 2048.0
     hrv = {**hrv_t, **hrv_f}
     return (
         hr.mean(),
@@ -145,7 +156,10 @@ def get_rsp_features(rsp_rec, sr):
     """
     Get RSP-derived features
     """
-    rsp, _ = nk.rsp_process(rsp_rec, sampling_rate=sr)
+    try:
+        rsp, _ = nk.rsp_process(rsp_rec, sampling_rate=sr)
+    except:
+        return 2048.0, 2048.0, 2048.0, 2048.0, 2048.0
     rsp_rate = rsp["RSP_Rate"].mean()
     rsp_depth = rsp["RSP_Amplitude"].mean()
     rvt = rsp["RSP_RVT"].mean()
@@ -206,17 +220,17 @@ def feature_extraction(session, name, sr):
 
             segment_features = {
                 "ppg_hr": ppg_hr,
-                "hr": hr,
+                "hr": hr,  #
                 "sdnn": sdnn,
                 "sdsd": sdsd,
                 "rmssd": rmssd,
                 "hf": hf,
-                "scl_mean": scl_mean,
-                "scl_slope": scl_slope,
-                "scr_peaks": scr_peaks,
-                "scr_amp": scr_amp,
-                "scr_rise": scr_rise,
-                "rsp_rate": rsp_rate,
+                "scl_mean": scl_mean,  #
+                "scl_slope": scl_slope,  #
+                "scr_peaks": scr_peaks,  #
+                "scr_amp": scr_amp,  #
+                "scr_rise": scr_rise,  #
+                "rsp_rate": rsp_rate,  #
                 "rsp_depth": rsp_depth,
                 "rvt": rvt,
                 "rrv_rmssd": rrv_rmssd,
@@ -244,11 +258,14 @@ if __name__ == "__main__":
         sub, mode = session_title[1:-4].split("_")
         print(f"Subject {sub}, mode {mode}")
 
-        if os.path.exists(f"{samples_path}/P{sub}_{mode}_event.npy"):
+        if (
+            os.path.exists(f"{samples_path}/P{sub}_{mode}_event.npy")
+            and os.path.exists(f"{samples_path}/P{sub}_{mode}_free.npy")
+            and os.path.exists(f"{samples_path}/P{sub}_{mode}_video.npy")
+        ) or int(sub) == 3:
             continue
 
         session = load_session(int(sub), mode)
-        # session["time"] = pd.to_datetime(session["time"], unit="s")
         session["rsp"] = session.filter(like="rsp").mean(axis=1)
 
         video_baseline = get_video_baseline(session, air * 2000)

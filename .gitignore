@@ -13,8 +13,10 @@ __pycache__/
 ckpt/
 data/
 outputs/
+offsets/
 metadata/
-results/
+results*/
+figures/
 *.ipynb
 
 # Distribution / packaging
