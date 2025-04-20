@@ -3,7 +3,7 @@ import pandas as pd, numpy as np
 
 
 RAW_PATH = "/media/data/toyota/raw_data/trina_33/"
-PROC_PATH = "/media/data/toyota/processed_data/trina_33_final/"
+PROC_PATH = "/media/data/toyota/processed_data/trina_33_wdrive/"
 os.makedirs(PROC_PATH, exist_ok=True)
 
 

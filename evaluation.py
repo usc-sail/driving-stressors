@@ -1,11 +1,28 @@
 import pandas as pd, os
 import numpy as np, json
-import matplotlib.pyplot as plt
-
 from tqdm import tqdm
 from scipy.stats import wilcoxon
 from sklearn.metrics import roc_auc_score
-from plotting import plot_proba_ts, plot_events_boxplot
+from plot_helper import plot_proba_ts, plot_events_boxplot
+
+import numpy as np
+
+
+def overlap_add(pred_ts, win=15):
+    """
+    Applies overlap-add smoothing to a time series of scalar predictions.
+    """
+    total_length = len(pred_ts)
+    stress_sum = np.zeros(total_length)
+    count = np.zeros(total_length)
+
+    for i, pred in enumerate(pred_ts):
+        start = max(0, i - win // 2)
+        end = min(total_length, i + win // 2 + (win % 2))
+        stress_sum[start:end] += pred
+        count[start:end] += 1
+
+    return stress_sum / count
 
 
 def get_scores(path0, path1):
@@ -21,7 +38,8 @@ def get_scores(path0, path1):
             "Proba 0": np.mean(pred_0),
             "Proba 1": np.mean(pred_1),
         },
-        y_pred,
+        overlap_add(y_pred),
+        # y_pred,
         y_true,
     )
 
@@ -42,14 +60,14 @@ def get_event_scores(event, y_pred, bounds):
     }
 
 
-def create_offsets(sub, this_mode):
+def create_offsets(csv_path, sub, this_mode, start_event):
     event_f = csv_path + f"{sub}_{this_mode}.csv"
     df = pd.read_csv(event_f, low_memory=False)
     df = df[["time", "event"]].dropna().reset_index(drop=True)
     df["time"] = df["time"] - df
 
     offset_list, event_list, flag = [], [], False
-    for i, row in df.iterrows():
+    for _, row in df.iterrows():
         if row["event"] == start_event[this_mode]:
             flag = True
         if flag:
@@ -68,27 +86,26 @@ def create_offsets(sub, this_mode):
 
 
 csv_path = f"/media/data/toyota/processed_data/trina_33_final/"
-this_mode, train_mode = "S", "IMS"
-with open(f"events_mapping.json", "rb") as f:
+this_mode, train_mode = "I", "IMS"
+with open("metadata/events_mapping.json", "rb") as f:
     events_mapping = json.load(f)[this_mode]
 
-subs = [f"P{i}" for i in range(1, 34) if i != 3]
+subs = [f"P{i}" for i in range(1, 34) if i not in [3, 8]]
+folds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 scores, event_scores = {}, {}
-
-folds = [0, 1, 2, 3, 4]
-folders = [f"results_svm{fold}" for fold in folds]
-
+np.random.seed(79911092)
 
 for sub in tqdm(subs):
     scores[sub] = {}
+    y_pred_total = []
 
-    for folder in folders:
-        path0 = f"{folder}/{sub}_{train_mode}_{this_mode}0.npy"
-        path1 = f"{folder}/{sub}_{train_mode}_{this_mode}1.npy"
+    for fold in folds:
+        path0 = f"results/{sub}_{train_mode}_{this_mode}0_s{fold}.npy"
+        path1 = f"results/{sub}_{train_mode}_{this_mode}1_s{fold}.npy"
         if not os.path.exists(path0):
             continue
 
-        scores[sub][folder], y_pred, y_true = get_scores(path0, path1)
+        scores[sub][fold], y_pred, y_true = get_scores(path0, path1)
 
         if sub == "P14" and this_mode == "I":
             continue
@@ -104,21 +121,19 @@ for sub in tqdm(subs):
                 "M": "Timer Start",
                 "S": "Crash",
             }
-            event_f = csv_path + f"{sub}_{this_mode}.csv"
             offset_list, event_list = create_offsets(
-                event_f, sub, this_mode, start_event
+                csv_path, sub, this_mode, start_event
             )
 
         bounds = [sum(y_true == 0), sum(y_true == 1)]
         bounds = np.cumsum(bounds)
         offset_list += bounds[0]
-
-        plot_proba_ts(sub, this_mode, y_pred, bounds, offset_list, event_list)
+        y_pred_total.append(y_pred)
 
         # get probabilities close to the events
         for e, event in enumerate(offset_list):
             try:
-                mapped_event = events_mapping[event_list[e]]
+                mapped_event = event_list[e]  # events_mapping[event_list[e]]
             except KeyError:
                 continue
 
@@ -133,20 +148,27 @@ for sub in tqdm(subs):
 
         # add the session as an event
         if "Session" not in event_scores:
-            event_scores["Session"] = {k: [v] for k, v in scores[sub][folder].items()}
+            event_scores["Session"] = {k: [v] for k, v in scores[sub][fold].items()}
         else:
-            for k, v in scores[sub][folder].items():
+            for k, v in scores[sub][fold].items():
                 event_scores["Session"][k].append(v)
+
+    if len(y_pred_total):
+        # y_pred_total = np.mean(y_pred_total, axis=0)
+        plot_proba_ts(sub, this_mode, y_pred_total, bounds, offset_list, event_list)
 
 
 def compute_bootstrap_ci(proba_0_list, proba_1_list, n_iter=1000):
     aurocs, effects = [], []
     for _ in range(n_iter):
-        bootstrap_indices = np.random.choice(
+        bootstrap_indices_0 = np.random.choice(
             range(len(proba_0_list)), size=len(proba_0_list), replace=True
         )
-        proba_0_bootstrap = np.array(proba_0_list)[bootstrap_indices]
-        proba_1_bootstrap = np.array(proba_1_list)[bootstrap_indices]
+        bootstrap_indices_1 = np.random.choice(
+            range(len(proba_1_list)), size=len(proba_1_list), replace=True
+        )
+        proba_0_bootstrap = np.array(proba_0_list)[bootstrap_indices_0]
+        proba_1_bootstrap = np.array(proba_1_list)[bootstrap_indices_1]
         auroc = roc_auc_score(
             np.concatenate(
                 [np.zeros(len(proba_0_bootstrap)), np.ones(len(proba_1_bootstrap))]
@@ -183,15 +205,16 @@ def compute_bootstrap_ci(proba_0_list, proba_1_list, n_iter=1000):
 bootstrap_scores = {}
 for e in event_scores.keys():
     print(f"\nEvent: {e}")
-    proba_0_list = event_scores[e]["Proba 0"]
-    proba_1_list = event_scores[e]["Proba 1"]
+    free_proba = event_scores[e]["Proba 0"]
+    event_proba = event_scores[e]["Proba 1"]
 
-    aurocs, effects = compute_bootstrap_ci(proba_0_list, proba_1_list)
+    aurocs, effects = compute_bootstrap_ci(free_proba, event_proba)
     bootstrap_scores[e] = {"ROC-AUC": aurocs, "Effect": effects}
 
-    stat, p = wilcoxon(proba_0_list, proba_1_list)
+    stat, p = wilcoxon(free_proba, event_proba)
     print(f"Wilcoxon p-value = {p:.8f}")
 
+"""
 if this_mode == "I":
     events = [
         "Session",
@@ -214,5 +237,11 @@ else:
         "Crash",
         "Barrel",
     ]
-
-plot_events_boxplot(bootstrap_scores, events, this_mode, train_mode)
+"""
+events = ["Session"] + list(events_mapping.keys()) + ["Clear Text"]
+plot_events_boxplot(
+    bootstrap_scores, events, this_mode, train_mode, score_type="ROC-AUC"
+)
+plot_events_boxplot(
+    bootstrap_scores, events, this_mode, train_mode, score_type="Effect"
+)
