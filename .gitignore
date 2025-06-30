@@ -18,6 +18,9 @@ ts_data/
 metadata/
 results*/
 figures/
+shap*/
+eda_pp*.py
+*_cpd.py
 *.ipynb
 
 # Distribution / packaging

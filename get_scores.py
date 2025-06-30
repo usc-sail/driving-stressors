@@ -7,29 +7,11 @@ np.random.seed(79911092)
 mod = ""
 
 
-def overlap_add(pred_ts, win=30):
-    """
-    Applies overlap-add smoothing to a time series of scalar predictions.
-    """
-    total_length = len(pred_ts)
-    stress_sum = np.zeros(total_length)
-    count = np.zeros(total_length)
-
-    for i, pred in enumerate(pred_ts):
-        start = max(0, i - win // 2)
-        end = min(total_length, i + win // 2 + (win % 2))
-        stress_sum[start:end] += pred
-        count[start:end] += 1
-
-    return stress_sum / count
-
-
 def get_scores(path0, path1):
     pred_0 = np.load(path0)
     pred_1 = np.load(path1)
 
     y_pred = np.concatenate([pred_0, pred_1])
-    y_pred = overlap_add(y_pred)
     y_true = np.concatenate([np.zeros(len(pred_0)), np.ones(len(pred_1))])
 
     return {
@@ -39,8 +21,8 @@ def get_scores(path0, path1):
     }
 
 
-csv_path = f"/media/data/toyota/processed_data/trina_33_final/"
 train_tasks = "IMS"
+test_tasks = ["I", "M", "S"]
 
 subs = [f"P{i}" for i in range(1, 34) if i not in [3, 8]]
 folds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -51,7 +33,7 @@ scores = {
 }
 
 for sub in tqdm(subs):
-    for task in ["I", "M", "S"]:
+    for task in test_tasks:
         for fold in folds:
             path0 = f"results{mod}/{sub}_{train_tasks}_{task}0_s{fold}.npy"
             path1 = f"results{mod}/{sub}_{train_tasks}_{task}1_s{fold}.npy"

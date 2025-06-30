@@ -1,7 +1,8 @@
-import numpy as np, shap, yaml
-import matplotlib.pyplot as plt, os
+import numpy as np, shap
+import os, pickle, yaml
 import xgboost as xgb
 from munch import munchify
+from scipy.stats import iqr
 from sklearn.model_selection import LeaveOneOut
 from sklearn.metrics import roc_auc_score
 from sklearn.impute import KNNImputer
@@ -14,6 +15,7 @@ feature_names = [
     # EDA
     "SCL mean",
     "SCL slope",
+    "SCR count",
     "SCR amp",
     "SCR rise",
     # RSP
@@ -35,7 +37,7 @@ def task_exists(sub, tasks):
     return False
 
 
-def load_session(sub, task, every=1, scale=False):
+def load_session(sub, task, every=1, scale=False, recovery=False):
     X, y = [], []
 
     task_file = f"{sub}_{task}_free.npy"
@@ -43,7 +45,7 @@ def load_session(sub, task, every=1, scale=False):
         baseline = np.load(cfg.token_root + task_file)
         if len(baseline) > 60:
             baseline = baseline[:60]
-        mean, std = baseline.mean(axis=0), baseline.std(axis=0) + 1e-6
+        mean, std = np.median(baseline, axis=0), iqr(baseline) + 1e-6
 
     task_file = f"{sub}_{task}_free.npy"
     if os.path.exists(cfg.token_root + task_file):
@@ -52,7 +54,7 @@ def load_session(sub, task, every=1, scale=False):
         X.append(this_X)
         y.append([0] * len(this_X))
 
-    task_file = f"{sub}_{task}_event.npy"
+    task_file = f"{sub}_{task}_recov.npy" if recovery else f"{sub}_{task}_event.npy"
     if os.path.exists(cfg.token_root + task_file):
         this_X = np.load(cfg.token_root + task_file)[::every]
         this_X = (this_X - mean) / std if scale else this_X - mean
@@ -69,18 +71,20 @@ with open("config.yaml", "r") as f:
 loso = LeaveOneOut()
 subs = [f"P{i}" for i in range(1, 34) if i not in [3, 8]]
 scores = {t: [] for t in cfg.test_tasks}
-shap_data, shap_list = [], []
+shap_v = {sub: {s: [] for s in cfg.test_tasks} for sub in subs}  # SHAP values
+shap_d = {sub: {s: [] for s in cfg.test_tasks} for sub in subs}  # Test data
+shap_e = {sub: {s: [] for s in cfg.test_tasks} for sub in subs}  # Explainers
 
-if cfg.modalities == ["ECG"]:
-    feature_ids = [0, 1]
-elif cfg.modalities == ["EDA"]:
-    feature_ids = [2, 3, 4, 5]
-elif cfg.modalities == ["RSP"]:
-    feature_ids = [6, 7, 8]
-elif cfg.modalities == ["SKT"]:
-    feature_ids = [9, 10]
-else:
-    feature_ids = list(range(11))
+feature_ids = []
+if "ECG" in cfg.modalities:
+    feature_ids.extend([0, 1])
+if "EDA" in cfg.modalities:
+    feature_ids.extend([2, 3, 4, 5, 6])
+if "RSP" in cfg.modalities:
+    feature_ids.extend([7, 8, 9])
+if "SKT" in cfg.modalities:
+    feature_ids.extend([10, 11])
+feature_names = [feature_names[i] for i in feature_ids]
 
 # Outer loop: Leave-One-Subject-Out
 for i, (train_index, test_index) in enumerate(loso.split(subs)):
@@ -131,7 +135,9 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
                 continue
 
             # Load the test data
-            X_test, y_test = load_session(test_sub, task, every=1, scale=cfg.scale)
+            X_test, y_test = load_session(
+                test_sub, task, every=1, scale=cfg.scale, recovery=False
+            )
             if len(X_test) == 0:
                 continue
 
@@ -141,10 +147,12 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
 
             # Explain model predictions
             if cfg.use_shap:
-                explainer = shap.Explainer(model, X_train)
+                explainer = shap.Explainer(model, X_train, feature_names=feature_names)
+                explanation = explainer(X_test)
                 shap_values = explainer.shap_values(X_test)
-                shap_data.append(X_test)
-                shap_list.append(shap_values)
+                shap_v[test_sub][task].append(shap_values)
+                shap_d[test_sub][task].append(X_test)
+                shap_e[test_sub][task].append(explanation)
 
             # Evaluate performance
             dtest = xgb.DMatrix(X_test, label=y_test)
@@ -159,20 +167,35 @@ for i, (train_index, test_index) in enumerate(loso.split(subs)):
 
             tr_tasks = "".join(cfg.train_tasks)
             is_rand = "_rand" if cfg.permute else ""
-            is_mod = f"_{cfg.modalities[0]}" if len(cfg.modalities) == 1 else "_mSKT"
+            is_mod = f"_{cfg.modalities[0]}" if len(cfg.modalities) == 1 else ""
 
-            folder = f"results{is_rand}{is_mod}"
+            folder = f"results{is_rand}{is_mod}_recov"
             os.makedirs(folder, exist_ok=True)
             np.save(f"{folder}/{test_sub}_{tr_tasks}_{task}0_s{fold}.npy", probas_0)
             np.save(f"{folder}/{test_sub}_{tr_tasks}_{task}1_s{fold}.npy", probas_1)
 
+    # Save the SHAP values
+    if cfg.use_shap:
+        for task in cfg.test_tasks:
+            if len(shap_v[test_sub][task]) == 0:
+                continue
+            os.makedirs("shaps", exist_ok=True)
+            shap_values = np.array(shap_values)
+            np.save(f"shaps/{test_sub}_{task}_shap.npy", shap_v[test_sub][task])
+            np.save(f"shaps/{test_sub}_{task}_data.npy", shap_d[test_sub][task])
+            with open(f"shaps/{test_sub}_{task}_explainer.pkl", "wb") as f:
+                pickle.dump(shap_e[test_sub][task], f)
+
+# Save SHAP values
 if cfg.use_shap:
-    all_shap_data = np.concatenate(shap_data, axis=0)
-    all_shap_values = np.concatenate(shap_list, axis=0)
-    feature_names = [feature_names[i] for i in feature_ids]
-    shap.summary_plot(all_shap_values, all_shap_data, feature_names=feature_names)
-    plt.savefig(f"figures/shapa_all.png", bbox_inches="tight")
-    plt.close()
+    os.makedirs("shap_values", exist_ok=True)
+    for sub in subs:
+        for task in cfg.test_tasks:
+            if len(shap_v[sub][task]) > 0:
+                shap_values = np.concatenate(shap_v[sub][task], axis=0)
+                shap_data = np.concatenate(shap_d[sub][task], axis=0)
+                np.save(f"shap_values/{sub}_{task}_shap.npy", shap_values)
+                np.save(f"shap_values/{sub}_{task}_data.npy", shap_data)
 
 print("\nAverage scores:")
 for task in cfg.test_tasks:

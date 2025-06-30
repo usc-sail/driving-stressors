@@ -4,9 +4,8 @@ token_root: "/media/data/toyota/processed_data/trina_33_samples_wdrive/"
 train_tasks: ["I", "M", "S"]
 test_tasks: ["I", "M", "S"]
 modalities: ["ECG", "EDA", "RSP", "SKT"]
-# modalities: ["RSP"]
 
 scale: 1
 permute: 0
-use_shap: 0
+use_shap: 1
 seed: 79911092

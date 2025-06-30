@@ -8,23 +8,6 @@ from plot_helper import plot_proba_ts, plot_events_boxplot
 import numpy as np
 
 
-def overlap_add(pred_ts, win=15):
-    """
-    Applies overlap-add smoothing to a time series of scalar predictions.
-    """
-    total_length = len(pred_ts)
-    stress_sum = np.zeros(total_length)
-    count = np.zeros(total_length)
-
-    for i, pred in enumerate(pred_ts):
-        start = max(0, i - win // 2)
-        end = min(total_length, i + win // 2 + (win % 2))
-        stress_sum[start:end] += pred
-        count[start:end] += 1
-
-    return stress_sum / count
-
-
 def get_scores(path0, path1):
     pred_0 = np.load(path0)
     pred_1 = np.load(path1)
@@ -38,8 +21,7 @@ def get_scores(path0, path1):
             "Proba 0": np.mean(pred_0),
             "Proba 1": np.mean(pred_1),
         },
-        overlap_add(y_pred),
-        # y_pred,
+        y_pred,
         y_true,
     )
 
