@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 ## Input Data Structure
 
-The data to train the model are loaded through ``process_trina33.py`` and pre-processed through ``features_new.py``.
+You can load the data through ``process_trina33.py`` and preprocess through ``features.py``.
 
 ## Running the models
 
